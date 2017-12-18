@@ -3,12 +3,7 @@
 > A Faktory Exporter for Prometheus. - by **[Lukas Malkmus](https://github.com/lukasmalkmus)**
 
 [![Travis Status][travis_badge]][travis]
-[![CircleCI Status][circleci_badge]][circleci]
-[![Coverage Status][coverage_badge]][coverage]
 [![Go Report][report_badge]][report]
-[![GoDoc][docs_badge]][docs]
-[![Docker Repository on Quay][quay_badge]][quay]
-[![Docker Pulls][hub_badge]][hub]
 [![Latest Release][release_badge]][release]
 [![License][license_badge]][license]
 
@@ -59,7 +54,8 @@ Help on flags:
 #### Using docker
 
 ```bash
-docker run -d --rm -p9386:9386 quay.io/lukasmalkmus/faktory-exporter:latest
+make docker
+docker run -d --rm -p9386:9386 faktory-exporter:master
 ```
 
 ### Contributing
@@ -76,18 +72,8 @@ See [LICENSE](LICENSE) for more information.
 
 [travis]: https://travis-ci.org/lukasmalkmus/faktory_exporter
 [travis_badge]: https://travis-ci.org/lukasmalkmus/faktory_exporter.svg
-[circleci]: https://circleci.com/gh/lukasmalkmus/faktory_exporter
-[circleci_badge]: (https://circleci.com/gh/lukasmalkmus/faktory_exporter/tree/master.svg?style=shield)
-[coverage]: https://coveralls.io/github/lukasmalkmus/faktory_exporter?branch=master
-[coverage_badge]: https://coveralls.io/repos/github/lukasmalkmus/faktory_exporter/badge.svg?branch=master
 [report]: https://goreportcard.com/report/github.com/lukasmalkmus/faktory_exporter
 [report_badge]: https://goreportcard.com/badge/github.com/lukasmalkmus/faktory_exporter
-[docs]: https://godoc.org/github.com/lukasmalkmus/faktory_exporter
-[docs_badge]: https://godoc.org/github.com/lukasmalkmus/faktory_exporter?status.svg
-[quay]: https://quay.io/repository/lukasmalkmus/faktory_exporter
-[quay_badge]: https://quay.io/repository/lukasmalkmus/faktory_exporter/status
-[hub]: https://hub.docker.com/r/lukasmalkmus/faktory-exporter
-[hub_badge]: https://img.shields.io/docker/pulls/lukasmalkmus/faktory-exporter.svg
 [release]: https://github.com/lukasmalkmus/faktory_exporter/releases
 [release_badge]: https://img.shields.io/github/release/lukasmalkmus/faktory_exporter.svg
 [license]: https://opensource.org/licenses/Apache-2.0
