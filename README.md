@@ -84,8 +84,8 @@ See [LICENSE](LICENSE) for more information.
 [report_badge]: https://goreportcard.com/badge/github.com/lukasmalkmus/faktory_exporter
 [docs]: https://godoc.org/github.com/lukasmalkmus/faktory_exporter
 [docs_badge]: https://godoc.org/github.com/lukasmalkmus/faktory_exporter?status.svg
-[quay]: https://quay.io/repository/lukasmalkmus/faktory-exporter
-[quay_badge]: https://quay.io/repository/lukasmalkmus/faktory-exporter/status
+[quay]: https://quay.io/repository/lukasmalkmus/faktory_exporter
+[quay_badge]: https://quay.io/repository/lukasmalkmus/faktory_exporter/status
 [hub]: https://hub.docker.com/r/lukasmalkmus/faktory-exporter
 [hub_badge]: https://img.shields.io/docker/pulls/lukasmalkmus/faktory-exporter.svg
 [release]: https://github.com/lukasmalkmus/faktory_exporter/releases
