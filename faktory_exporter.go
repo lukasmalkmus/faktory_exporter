@@ -194,7 +194,7 @@ func (e *Exporter) reset() {
 // appropriate metrics and meassures the scrapes duration.
 func (e *Exporter) scrape() (err error) {
 	// Meassure scrape duration, increase total scrapes and evaluate if the
-	// scrape was successfull and set up/down and failes scrapes accordingly.
+	// scrape was successful and set up/down and failes scrapes accordingly.
 	defer func(begun time.Time) {
 		e.scrapeDuration.Set(time.Since(begun).Seconds())
 		e.totalScrapes.Inc()
