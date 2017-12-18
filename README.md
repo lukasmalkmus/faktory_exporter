@@ -3,6 +3,7 @@
 > A Faktory Exporter for Prometheus. - by **[Lukas Malkmus](https://github.com/lukasmalkmus)**
 
 [![Travis Status][travis_badge]][travis]
+[![CircleCI Status][circleci_badge]][circleci]
 [![Coverage Status][coverage_badge]][coverage]
 [![Go Report][report_badge]][report]
 [![GoDoc][docs_badge]][docs]
@@ -75,6 +76,8 @@ See [LICENSE](LICENSE) for more information.
 
 [travis]: https://travis-ci.org/lukasmalkmus/faktory_exporter
 [travis_badge]: https://travis-ci.org/lukasmalkmus/faktory_exporter.svg
+[circleci]: https://circleci.com/gh/lukasmalkmus/faktory_exporter
+[circleci_badge]: (https://circleci.com/gh/lukasmalkmus/faktory_exporter/tree/master.svg?style=shield)
 [coverage]: https://coveralls.io/github/lukasmalkmus/faktory_exporter?branch=master
 [coverage_badge]: https://coveralls.io/repos/github/lukasmalkmus/faktory_exporter/badge.svg?branch=master
 [report]: https://goreportcard.com/report/github.com/lukasmalkmus/faktory_exporter
