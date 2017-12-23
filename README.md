@@ -6,6 +6,7 @@
 [![Go Report][report_badge]][report]
 [![Latest Release][release_badge]][release]
 [![License][license_badge]][license]
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Flukasmalkmus%2Ffaktory_exporter.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Flukasmalkmus%2Ffaktory_exporter?ref=badge_shield)
 
 ---
 
@@ -78,3 +79,5 @@ See [LICENSE](LICENSE) for more information.
 [release_badge]: https://img.shields.io/github/release/lukasmalkmus/faktory_exporter.svg
 [license]: https://opensource.org/licenses/Apache-2.0
 [license_badge]: https://img.shields.io/badge/license-Apache-blue.svg
+
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Flukasmalkmus%2Ffaktory_exporter.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Flukasmalkmus%2Ffaktory_exporter?ref=badge_large)
