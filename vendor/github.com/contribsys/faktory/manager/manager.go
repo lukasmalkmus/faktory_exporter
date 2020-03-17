@@ -10,6 +10,7 @@ import (
 	"github.com/contribsys/faktory/client"
 	"github.com/contribsys/faktory/storage"
 	"github.com/contribsys/faktory/util"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -21,6 +22,36 @@ const (
 	// Save dead jobs for 180 days, after that they will be purged
 	DeadTTL = 180 * 24 * time.Hour
 )
+
+// A KnownError is one that returns a specific error code to the client
+// such that it can be handled explicitly.  For example, the unique job feature
+// will return a NOTUNIQUE error when the client tries to push() a job that already
+// exists in Faktory.
+//
+// Unexpected errors will always use "ERR" as their code, for instance any
+// malformed data, network errors, IO errors, etc.  Clients are expected to
+// raise an exception for any ERR response.
+type KnownError interface {
+	error
+	Code() string
+}
+
+type codedError struct {
+	code string
+	msg  string
+}
+
+func (t *codedError) Error() string {
+	return fmt.Sprintf("%s %s", t.code, t.msg)
+}
+
+func (t *codedError) Code() string {
+	return t.code
+}
+
+func ExpectedError(code string, msg string) error {
+	return &codedError{code: code, msg: msg}
+}
 
 type Manager interface {
 	Push(job *client.Job) error
@@ -54,40 +85,98 @@ type Manager interface {
 
 	Fail(fail *FailPayload) error
 
+	// Allows arbitrary extension of a job's current reservation
+	// This is a no-op if you set the time before the current
+	// reservation expiry.
+	ExtendReservation(jid string, until time.Time) error
+
 	WorkingCount() int
 
-	ReapExpiredJobs(timestamp string) (int, error)
+	ReapExpiredJobs(when time.Time) (int, error)
 
 	// Purge deletes all dead jobs
-	Purge() (int64, error)
+	Purge(when time.Time) (int64, error)
 
 	// EnqueueScheduledJobs enqueues scheduled jobs
-	EnqueueScheduledJobs() (int64, error)
+	EnqueueScheduledJobs(when time.Time) (int64, error)
 
 	// RetryJobs enqueues failed jobs
-	RetryJobs() (int64, error)
+	RetryJobs(when time.Time) (int64, error)
 
 	BusyCount(wid string) int
+
+	AddMiddleware(fntype string, fn MiddlewareFunc)
+
+	KV() storage.KV
+	Redis() *redis.Client
+	SetFetcher(f Fetcher)
 }
 
 func NewManager(s storage.Store) Manager {
+	return newManager(s)
+}
+
+func newManager(s storage.Store) *manager {
 	m := &manager{
 		store:      s,
 		workingMap: map[string]*Reservation{},
+		pushChain:  make(MiddlewareChain, 0),
+		failChain:  make(MiddlewareChain, 0),
+		ackChain:   make(MiddlewareChain, 0),
+		fetchChain: make(MiddlewareChain, 0),
 	}
-	m.loadWorkingSet()
+	_ = m.loadWorkingSet()
+	m.fetcher = BasicFetcher(m.Redis())
 	return m
+}
+
+func (m *manager) SetFetcher(f Fetcher) {
+	m.fetcher = f
+}
+
+func (m *manager) KV() storage.KV {
+	return m.store.Raw()
+}
+
+func (m *manager) Redis() *redis.Client {
+	return m.store.Redis()
+}
+
+func (m *manager) AddMiddleware(fntype string, fn MiddlewareFunc) {
+	switch fntype {
+	case "push":
+		m.pushChain = append(m.pushChain, fn)
+	case "ack":
+		m.ackChain = append(m.ackChain, fn)
+	case "fail":
+		m.failChain = append(m.failChain, fn)
+	case "fetch":
+		m.fetchChain = append(m.fetchChain, fn)
+	default:
+		panic(fmt.Sprintf("Unknown middleware type: %s", fntype))
+	}
+}
+
+type Lease interface {
+	Release() error
+	Payload() []byte
+	Job() (*client.Job, error)
 }
 
 type manager struct {
 	store storage.Store
 
 	// Hold the working set in memory so we don't need to burn CPU
-	// marshalling between Rocks and memory when doing 1000s of jobs/sec.
+	// when doing 1000s of jobs/sec.
 	// When client ack's JID, we can lookup reservation
-	// and remove Rocks entry quickly.
+	// and remove stored entry quickly.
 	workingMap   map[string]*Reservation
 	workingMutex sync.RWMutex
+	pushChain    MiddlewareChain
+	fetchChain   MiddlewareChain
+	failChain    MiddlewareChain
+	ackChain     MiddlewareChain
+	fetcher      Fetcher
 }
 
 func (m *manager) Push(job *client.Job) error {
@@ -100,6 +189,9 @@ func (m *manager) Push(job *client.Job) error {
 	if job.Args == nil {
 		return fmt.Errorf("All jobs must have an args parameter")
 	}
+	if job.ReserveFor > 86400 {
+		return fmt.Errorf("Jobs cannot be reserved for more than one day")
+	}
 
 	if job.CreatedAt == "" {
 		job.CreatedAt = util.Nows()
@@ -109,34 +201,35 @@ func (m *manager) Push(job *client.Job) error {
 		job.Queue = "default"
 	}
 
-	// Priority can never be negative because of signedness
-	if job.Priority > 9 || job.Priority == 0 {
-		job.Priority = 5
-	}
-
+	var err error
+	var t time.Time
 	if job.At != "" {
-		t, err := util.ParseTime(job.At)
+		t, err = util.ParseTime(job.At)
 		if err != nil {
 			return fmt.Errorf("Invalid timestamp for 'at': '%s'", job.At)
 		}
-
-		if t.After(time.Now()) {
-			data, err := json.Marshal(job)
-			if err != nil {
-				return err
-			}
-
-			// scheduler for later
-			err = m.store.Scheduled().AddElement(job.At, job.Jid, data)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
 	}
 
-	// enqueue immediately
-	return m.enqueue(job)
+	err = callMiddleware(m.pushChain, Ctx{context.Background(), job, m, nil}, func() error {
+		if job.At != "" {
+			if t.After(time.Now()) {
+				data, err := json.Marshal(job)
+				if err != nil {
+					return err
+				}
+
+				// scheduler for later
+				return m.store.Scheduled().AddElement(job.At, job.Jid, data)
+			}
+		}
+		return m.enqueue(job)
+	})
+	if err != nil {
+		if k, ok := err.(KnownError); ok {
+			util.Infof("JID %s: %s", job.Jid, k.Error())
+		}
+	}
+	return err
 }
 
 func (m *manager) enqueue(job *client.Job) error {
@@ -150,65 +243,6 @@ func (m *manager) enqueue(job *client.Job) error {
 	if err != nil {
 		return err
 	}
-
-	err = q.Push(job.Priority, data)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *manager) Fetch(ctx context.Context, wid string, queues ...string) (*client.Job, error) {
-	var first storage.Queue
-
-	for idx, qname := range queues {
-		q, err := m.store.GetQueue(qname)
-		if err != nil {
-			return nil, err
-		}
-
-		data, err := q.Pop()
-		if err != nil {
-			return nil, err
-		}
-		if data != nil {
-			var job client.Job
-			err = json.Unmarshal(data, &job)
-			if err != nil {
-				return nil, err
-			}
-			err = m.reserve(wid, &job)
-			if err != nil {
-				return nil, err
-			}
-			return &job, nil
-		}
-		if idx == 0 {
-			first = q
-		}
-	}
-
-	// scanned through our queues, no jobs were available
-	// we should block for a moment, awaiting a job to be
-	// pushed.  this allows us to pick up new jobs in µs
-	// rather than seconds.
-	data, err := first.BPop(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if data != nil {
-		var job client.Job
-		err = json.Unmarshal(data, &job)
-		if err != nil {
-			return nil, err
-		}
-		err = m.reserve(wid, &job)
-		if err != nil {
-			return nil, err
-		}
-		return &job, nil
-	}
-
-	return nil, nil
+	//util.Debugf("pushed: %+v", job)
+	return q.Push(data)
 }

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/contribsys/faktory/internal/pool"
 )
 
 const (
@@ -25,14 +27,21 @@ var (
 	// Set this to a non-empty value in a consumer process
 	// e.g. see how faktory_worker_go sets this.
 	RandomProcessWid = ""
+	Labels           = []string{"golang"}
 )
 
+// The Client structure represents a thread-unsafe connection
+// to a Faktory server.  It is recommended to use a connection pool
+// of Clients in a multi-threaded process.  See faktory_worker_go's
+// internal connection pool for example.
+//
 type Client struct {
 	Location string
 	Options  *ClientData
 	rdr      *bufio.Reader
 	wtr      *bufio.Writer
 	conn     net.Conn
+	poolConn *pool.PoolConn
 }
 
 // ClientData is serialized to JSON and sent
@@ -58,13 +67,62 @@ type ClientData struct {
 }
 
 type Server struct {
-	Network string
-	Address string
-	Timeout time.Duration
+	Network  string
+	Address  string
+	Password string
+	Timeout  time.Duration
+	TLS      *tls.Config
+}
+
+func (s *Server) Open() (*Client, error) {
+	return Dial(s, s.Password)
+}
+
+func (s *Server) ReadFromEnv() error {
+	val, ok := os.LookupEnv("FAKTORY_PROVIDER")
+	if ok {
+		if strings.Contains(val, ":") {
+			return fmt.Errorf(`Error: FAKTORY_PROVIDER is not a URL. It is the name of the ENV var that contains the URL:
+
+FAKTORY_PROVIDER=FOO_URL
+FOO_URL=tcp://:mypassword@faktory.example.com:7419`)
+		}
+
+		uval, ok := os.LookupEnv(val)
+		if ok {
+			uri, err := url.Parse(uval)
+			if err != nil {
+				return err
+			}
+			s.Network = uri.Scheme
+			s.Address = fmt.Sprintf("%s:%s", uri.Hostname(), uri.Port())
+			if uri.User != nil {
+				s.Password, _ = uri.User.Password()
+			}
+			return nil
+		}
+		return fmt.Errorf("FAKTORY_PROVIDER set to invalid value: %s", val)
+	}
+
+	uval, ok := os.LookupEnv("FAKTORY_URL")
+	if ok {
+		uri, err := url.Parse(uval)
+		if err != nil {
+			return err
+		}
+		s.Network = uri.Scheme
+		s.Address = fmt.Sprintf("%s:%s", uri.Hostname(), uri.Port())
+		if uri.User != nil {
+			s.Password, _ = uri.User.Password()
+		}
+		return nil
+	}
+
+	return nil
 }
 
 func DefaultServer() *Server {
-	return &Server{"tcp", "localhost:7419", 1 * time.Second}
+	return &Server{"tcp", "localhost:7419", "", 1 * time.Second, &tls.Config{}}
 }
 
 // Open connects to a Faktory server based on
@@ -81,50 +139,12 @@ func DefaultServer() *Server {
 // which is appropriate for local development.
 func Open() (*Client, error) {
 	srv := DefaultServer()
-
-	val, ok := os.LookupEnv("FAKTORY_PROVIDER")
-	if ok {
-		if strings.Contains(val, ":") {
-			return nil, fmt.Errorf(`Error: FAKTORY_PROVIDER is not a URL. It is the name of the ENV var that contains the URL:
-
-FAKTORY_PROVIDER=FOO_URL
-FOO_URL=tcp://:mypassword@faktory.example.com:7419`)
-		}
-
-		uval, ok := os.LookupEnv(val)
-		if ok {
-			uri, err := url.Parse(uval)
-			if err != nil {
-				return nil, err
-			}
-			srv.Network = uri.Scheme
-			srv.Address = fmt.Sprintf("%s:%s", uri.Hostname(), uri.Port())
-			pwd := ""
-			if uri.User != nil {
-				pwd, _ = uri.User.Password()
-			}
-			return Dial(srv, pwd)
-		}
-		return nil, fmt.Errorf("FAKTORY_PROVIDER set to invalid value: %s", val)
+	err := srv.ReadFromEnv()
+	if err != nil {
+		return nil, err
 	}
-
-	uval, ok := os.LookupEnv("FAKTORY_URL")
-	if ok {
-		uri, err := url.Parse(uval)
-		if err != nil {
-			return nil, err
-		}
-		srv.Network = uri.Scheme
-		srv.Address = fmt.Sprintf("%s:%s", uri.Hostname(), uri.Port())
-		pwd := ""
-		if uri.User != nil {
-			pwd, _ = uri.User.Password()
-		}
-		return Dial(srv, pwd)
-	}
-
 	// Connect to default localhost
-	return Dial(srv, "")
+	return srv.Open()
 }
 
 // Dial connects to the remote faktory server.
@@ -137,18 +157,21 @@ func Dial(srv *Server, password string) (*Client, error) {
 	var err error
 	var conn net.Conn
 	dial := &net.Dialer{Timeout: srv.Timeout}
-	if srv.Network == "tcp" {
+	if srv.Network == "tcp+tls" {
+		conn, err = tls.DialWithDialer(dial, "tcp", srv.Address, srv.TLS)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 		conn, err = dial.Dial(srv.Network, srv.Address)
 		if err != nil {
 			return nil, err
 		}
 		if x, ok := conn.(*net.TCPConn); ok {
-			x.SetKeepAlive(true)
-		}
-	} else {
-		conn, err = tls.DialWithDialer(dial, srv.Network, srv.Address, &tls.Config{})
-		if err != nil {
-			return nil, err
+			err = x.SetKeepAlive(true)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -212,37 +235,42 @@ func Dial(srv *Server, password string) (*Client, error) {
 }
 
 func (c *Client) Close() error {
-	return writeLine(c.wtr, "END", nil)
+	_ = writeLine(c.wtr, "END", nil)
+	return c.conn.Close()
 }
 
 func (c *Client) Ack(jid string) error {
-	err := writeLine(c.wtr, "ACK", []byte(fmt.Sprintf(`{"jid":"%s"}`, jid)))
+	err := c.writeLine(c.wtr, "ACK", []byte(fmt.Sprintf(`{"jid":"%s"}`, jid)))
 	if err != nil {
 		return err
 	}
 
-	return ok(c.rdr)
+	return c.ok(c.rdr)
 }
 
 func (c *Client) Push(job *Job) error {
-	jobytes, err := json.Marshal(job)
+	jobBytes, err := json.Marshal(job)
 	if err != nil {
 		return err
 	}
-	err = writeLine(c.wtr, "PUSH", jobytes)
+	err = c.writeLine(c.wtr, "PUSH", jobBytes)
 	if err != nil {
 		return err
 	}
-	return ok(c.rdr)
+	return c.ok(c.rdr)
 }
 
 func (c *Client) Fetch(q ...string) (*Job, error) {
-	err := writeLine(c.wtr, "FETCH", []byte(strings.Join(q, " ")))
+	if len(q) == 0 {
+		return nil, fmt.Errorf("Fetch must be called with one or more queue names")
+	}
+
+	err := c.writeLine(c.wtr, "FETCH", []byte(strings.Join(q, " ")))
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := readResponse(c.rdr)
+	data, err := c.readResponse(c.rdr)
 	if err != nil {
 		return nil, err
 	}
@@ -284,29 +312,29 @@ func (c *Client) Fail(jid string, err error, backtrace []byte) error {
 	if err != nil {
 		return err
 	}
-	err = writeLine(c.wtr, "FAIL", failbytes)
+	err = c.writeLine(c.wtr, "FAIL", failbytes)
 	if err != nil {
 		return err
 	}
-	return ok(c.rdr)
+	return c.ok(c.rdr)
 }
 
 func (c *Client) Flush() error {
-	err := writeLine(c.wtr, "FLUSH", nil)
+	err := c.writeLine(c.wtr, "FLUSH", nil)
 	if err != nil {
 		return err
 	}
 
-	return ok(c.rdr)
+	return c.ok(c.rdr)
 }
 
 func (c *Client) Info() (map[string]interface{}, error) {
-	err := writeLine(c.wtr, "INFO", nil)
+	err := c.writeLine(c.wtr, "INFO", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := readResponse(c.rdr)
+	data, err := c.readResponse(c.rdr)
 	if err != nil {
 		return nil, err
 	}
@@ -324,20 +352,70 @@ func (c *Client) Info() (map[string]interface{}, error) {
 }
 
 func (c *Client) Generic(cmdline string) (string, error) {
-	err := writeLine(c.wtr, cmdline, nil)
+	err := c.writeLine(c.wtr, cmdline, nil)
 	if err != nil {
 		return "", err
 	}
 
-	return readString(c.rdr)
+	return c.readString(c.rdr)
 }
 
-func (c *Client) Beat() (string, error) {
-	val, err := c.Generic("BEAT " + fmt.Sprintf(`{"wid":"%s"}`, RandomProcessWid))
+func (c *Client) Beat(args ...string) (string, error) {
+	state := ""
+	if len(args) > 0 {
+		state = args[0]
+	}
+
+	extra := ""
+	if state != "" {
+		extra = fmt.Sprintf(`,"current_state":"%s"`, state)
+	}
+	val, err := c.Generic("BEAT " + fmt.Sprintf(`{"wid":"%s"%s}`, RandomProcessWid, extra))
 	if val == "OK" {
 		return "", nil
 	}
 	return val, err
+}
+
+func (c *Client) writeLine(io *bufio.Writer, op string, payload []byte) error {
+	err := writeLine(io, op, payload)
+	if err != nil {
+		c.markUnusable()
+	}
+	return err
+}
+
+func (c *Client) readResponse(rdr *bufio.Reader) ([]byte, error) {
+	data, err := readResponse(rdr)
+	if err != nil {
+		c.markUnusable()
+	}
+	return data, err
+}
+
+func (c *Client) ok(rdr *bufio.Reader) error {
+	err := ok(rdr)
+	if err != nil {
+		c.markUnusable()
+	}
+	return err
+}
+
+func (c *Client) readString(rdr *bufio.Reader) (string, error) {
+	s, err := readString(rdr)
+	if err != nil {
+		c.markUnusable()
+	}
+	return s, err
+}
+
+func (c *Client) markUnusable() {
+	if c.poolConn == nil {
+		// if this client was not created as part of a pool,
+		// this call becomes a no-op
+		return
+	}
+	c.poolConn.MarkUnusable()
 }
 
 //////////////////////////////////////////////////
@@ -351,7 +429,7 @@ func emptyClientData() *ClientData {
 	client.Hostname = hs
 	client.Pid = os.Getpid()
 	client.Wid = RandomProcessWid
-	client.Labels = []string{"golang"}
+	client.Labels = Labels
 	client.Version = ExpectedProtocolVersion
 	return client
 }
@@ -456,8 +534,7 @@ func readResponse(rdr *bufio.Reader) ([]byte, error) {
 
 func hash(pwd, salt string, iterations int) string {
 	bytes := []byte(pwd + salt)
-	var hash [32]byte
-	hash = sha256.Sum256(bytes)
+	hash := sha256.Sum256(bytes)
 	if iterations > 1 {
 		for i := 1; i < iterations; i++ {
 			hash = sha256.Sum256(hash[:])

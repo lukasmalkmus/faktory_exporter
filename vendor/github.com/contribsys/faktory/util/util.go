@@ -1,8 +1,6 @@
 package util
 
 import (
-	"bufio"
-	"bytes"
 	cryptorand "crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -12,10 +10,11 @@ import (
 	"time"
 )
 
-var (
-	LogInfo  = false
-	LogDebug = false
-	logg     = NewLogger("info", false)
+const (
+	SIGHUP  = 0x1
+	SIGINT  = 0x2
+	SIGQUIT = 0x3
+	SIGTERM = 0xF
 )
 
 func Darwin() bool {
@@ -32,80 +31,6 @@ func FileExists(path string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-// ReadLines reads a whole file into memory
-// and returns a slice of its lines.
-func ReadLines(data []byte) ([]string, error) {
-	var lines []string
-	scan := bufio.NewScanner(bytes.NewReader(data))
-	for scan.Scan() {
-		lines = append(lines, scan.Text())
-	}
-	return lines, scan.Err()
-}
-
-//
-// Logging functions
-//
-
-func InitLogger(level string) {
-	logg = NewLogger(level, true)
-	if level == "info" {
-		LogInfo = true
-	}
-
-	if level == "debug" {
-		LogInfo = true
-		LogDebug = true
-	}
-}
-
-func Log() Logger {
-	return logg
-}
-
-func Error(msg string, err error) {
-	logg.WithError(err).Error(msg)
-}
-
-// Uh oh, not good but not worthy of process death
-func Warn(arg string) {
-	logg.Warn(arg)
-}
-
-func Warnf(msg string, args ...interface{}) {
-	logg.Warnf(msg, args...)
-}
-
-// Typical logging output, the default level
-func Info(arg string) {
-	if LogInfo {
-		logg.Info(arg)
-	}
-}
-
-// Typical logging output, the default level
-func Infof(msg string, args ...interface{}) {
-	if LogInfo {
-		logg.Infof(msg, args...)
-	}
-}
-
-// Verbosity level helps track down production issues:
-//  -l debug
-func Debug(arg string) {
-	if LogDebug {
-		logg.Debug(arg)
-	}
-}
-
-// Verbosity level helps track down production issues:
-//  -l debug
-func Debugf(msg string, args ...interface{}) {
-	if LogDebug {
-		logg.Debugf(msg, args...)
-	}
 }
 
 func RandomJid() string {
@@ -171,4 +96,11 @@ func Backtrace(size int) []string {
 	}
 
 	return str[0:count]
+}
+
+func DumpProcessTrace() {
+	buf := make([]byte, 64*1024)
+	_ = runtime.Stack(buf, true)
+	Info("FULL PROCESS THREAD DUMP:")
+	Info(string(buf))
 }
