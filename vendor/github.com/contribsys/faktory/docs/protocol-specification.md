@@ -131,10 +131,9 @@ fields depending on the situation.
 | Field name    | Value type     | When omitted   | Description |
 | ------------- | -------------- | -------------- | ----------- |
 | `queue`       | String         | `default`      | which job queue to push this job onto.
-| `priority`    | Integer [1-9]  | 5              | higher priority jobs are dequeued before lower priority jobs.
 | `reserve_for` | Integer [60+]  | 1800           | number of seconds a job may be held by a worker before it is considered failed.
 | `at`          | RFC3339 string | \<blank\>      | run the job at approximately this time; immediately if blank
-| `retry`       | Integer        | 25             | number of times to retry this job if it fails. -1 prevents retries.
+| `retry`       | Integer        | 25             | number of times to retry this job if it fails. 0 discards the failed job, -1 saves the failed job to the dead set.
 | `backtrace`   | Integer        | 0              | number of lines of FAIL information to preserve.
 | `created_at`  | RFC3339 string | set by server  | used to indicate the creation time of this job.
 | `custom`      | JSON hash      | `null`         | provides additional context to the worker executing the job.
@@ -364,6 +363,18 @@ S: +HI {"v":2,"s":"123456789abc","i":1735}
 C: HELLO {"pwdhash":"1e440e3f3d2db545e9129bb4b63121b6b09d594dae4344d1d2a309af0e2acac1","v":2}
 S: +OK
 ```
+
+### `FLUSH` Command
+
+Arguments: *none*
+
+Responses:
+
+ - Simple String "OK" - database was cleared
+ - Error - database was not cleared
+
+`FLUSH` allows the caller to clear all info from Faktory's internal
+database. It uses Redis's `FLUSHDB` command under the covers.
 
 ### `INFO` Command
 
