@@ -158,7 +158,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.connections.Describe(ch)
 	e.jobs.Describe(ch)
 	e.totalQueues.Describe(ch)
-	for queue, _ := range e.queues {
+	for _, counter := range e.queues {
 		counter.Describe(ch)
 	}
 
