@@ -261,7 +261,11 @@ func (e *Exporter) scrape() (err error) {
 	e.jobs.WithLabelValues("processed").Set(processed)
 	e.totalQueues.Set(totalQueues)
 
-	queues := faktory["queues"].(map[string]interface{})
+	queues, ok := faktory["queues"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("error getting queue counts")
+	}
+
 	for queue, counter := range queues {
 		e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
