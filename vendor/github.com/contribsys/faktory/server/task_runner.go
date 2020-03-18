@@ -18,8 +18,7 @@ import (
  * ts.Run(...)
  */
 type taskRunner struct {
-	stopping chan interface{}
-	tasks    []*task
+	tasks []*task
 
 	walltimeNs int64
 	cycles     int64
@@ -28,13 +27,13 @@ type taskRunner struct {
 }
 
 type task struct {
-	runner     taskable
+	runner     Taskable
 	every      int64
 	runs       int64
 	walltimeNs int64
 }
 
-type taskable interface {
+type Taskable interface {
 	Name() string
 	Execute() error
 	Stats() map[string]interface{}
@@ -42,25 +41,21 @@ type taskable interface {
 
 func newTaskRunner() *taskRunner {
 	return &taskRunner{
-		stopping: make(chan interface{}),
-		tasks:    make([]*task, 0),
+		tasks: make([]*task, 0),
 	}
 }
 
-func (ts *taskRunner) AddTask(sec int64, thing taskable) {
+func (ts *taskRunner) AddTask(sec int64, thing Taskable) {
 	var tsk task
 	tsk.runner = thing
 	tsk.every = sec
 	ts.mutex.Lock()
-	defer ts.mutex.Unlock()
 	ts.tasks = append(ts.tasks, &tsk)
+	ts.mutex.Unlock()
 }
 
-func (ts *taskRunner) Run(waiter *sync.WaitGroup) {
-	waiter.Add(1)
+func (ts *taskRunner) Run(stopper chan bool) {
 	go func() {
-		defer waiter.Done()
-
 		// add random jitter so the runner goroutine doesn't fire at 000ms
 		time.Sleep(time.Duration(rand.Float64()) * time.Second)
 		timer := time.NewTicker(1 * time.Second)
@@ -70,7 +65,8 @@ func (ts *taskRunner) Run(waiter *sync.WaitGroup) {
 			ts.cycle()
 			select {
 			case <-timer.C:
-			case <-ts.stopping:
+			case <-stopper:
+				util.Debug("Stopping scheduled tasks")
 				return
 			}
 		}
@@ -86,11 +82,6 @@ func (ts *taskRunner) Stats() map[string]map[string]interface{} {
 		data[task.runner.Name()] = task.runner.Stats()
 	}
 	return data
-}
-
-func (ts *taskRunner) Stop() {
-	util.Debug("Stopping scheduled tasks")
-	close(ts.stopping)
 }
 
 func (ts *taskRunner) cycle() {
@@ -120,7 +111,7 @@ func (ts *taskRunner) cycle() {
 	atomic.AddInt64(&ts.walltimeNs, end.Sub(start).Nanoseconds())
 }
 
-func (s *Server) startTasks(waiter *sync.WaitGroup) {
+func (s *Server) startTasks() {
 	ts := newTaskRunner()
 	// scan the various sets, looking for things to do
 	ts.AddTask(5, &scanner{name: "Scheduled", set: s.store.Scheduled(), task: s.manager.EnqueueScheduledJobs})
@@ -131,10 +122,7 @@ func (s *Server) startTasks(waiter *sync.WaitGroup) {
 	ts.AddTask(15, &reservationReaper{s.manager, 0})
 	// reaps workers who have not heartbeated
 	ts.AddTask(15, &beatReaper{s.workers, 0})
-	// backup runner
-	policy := newBackupPolicy(s)
-	ts.AddTask(policy.Frequency(), policy)
 
-	ts.Run(waiter)
+	ts.Run(s.Stopper())
 	s.taskRunner = ts
 }

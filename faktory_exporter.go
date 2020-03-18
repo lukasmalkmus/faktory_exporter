@@ -59,7 +59,8 @@ type Exporter struct {
 	commandCount prometheus.Counter
 	connections  prometheus.Gauge
 	jobs         *prometheus.CounterVec
-	queues       prometheus.Gauge
+	totalQueues  prometheus.Gauge
+	queues       map[string]*prometheus.GaugeVec
 }
 
 // New creates and returns a new, initialized Faktory Exporter.
@@ -134,12 +135,13 @@ func New(faktoryURL string) (*Exporter, error) {
 			Name:      "total",
 			Help:      "Total amount of jobs.",
 		}, []string{"status"}),
-		queues: prometheus.NewGauge(prometheus.GaugeOpts{
+		totalQueues: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: "queues",
 			Name:      "total",
 			Help:      "Total amount of queues.",
 		}),
+		queues: make(map[string]*prometheus.GaugeVec),
 	}
 
 	return e, nil
@@ -155,7 +157,11 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.commandCount.Describe(ch)
 	e.connections.Describe(ch)
 	e.jobs.Describe(ch)
-	e.queues.Describe(ch)
+	e.totalQueues.Describe(ch)
+	for _, counter := range e.queues {
+		counter.Describe(ch)
+	}
+
 }
 
 // Collect the stats from the configured Faktory instance and deliver them as
@@ -182,7 +188,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.commandCount.Collect(ch)
 	e.connections.Collect(ch)
 	e.jobs.Collect(ch)
-	e.queues.Collect(ch)
+	e.totalQueues.Collect(ch)
+	for _, counter := range e.queues {
+		counter.Collect(ch)
+	}
 }
 
 // reset the vector metrics.
@@ -239,7 +248,7 @@ func (e *Exporter) scrape() (err error) {
 	if !ok {
 		return fmt.Errorf("error getting processed jobs")
 	}
-	queues, ok := faktory["total_queues"].(float64)
+	totalQueues, ok := faktory["total_queues"].(float64)
 	if !ok {
 		return fmt.Errorf("error getting queues")
 	}
@@ -250,8 +259,23 @@ func (e *Exporter) scrape() (err error) {
 	e.jobs.WithLabelValues("enqueued").Set(enqueued)
 	e.jobs.WithLabelValues("failure").Set(failures)
 	e.jobs.WithLabelValues("processed").Set(processed)
-	e.queues.Set(queues)
+	e.totalQueues.Set(totalQueues)
 
+	queues, ok := faktory["queues"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("error getting queue counts")
+	}
+
+	for queue, counter := range queues {
+		e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "queue",
+			Name:      "jobs",
+			Help:      "Number of jobs in the " + queue + "queue.",
+		},
+			[]string{"queue"})
+		e.queues[queue].WithLabelValues(queue).Set(counter.(float64))
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"testing"
 	"time"
 
@@ -52,29 +53,50 @@ func TestWorkers(t *testing.T) {
 	workers := newWorkers()
 	assert.Equal(t, 0, workers.Count())
 
-	client := &ClientData{
-		Hostname: "MikeBookPro.local",
-		Wid:      "78629a0f5f3f164f",
+	beat := &ClientBeat{
+		Wid: "78629a0f5f3f164f",
 	}
-
-	entry, ok := workers.heartbeat(client, false)
+	entry, ok := workers.heartbeat(beat)
 	assert.Equal(t, 0, workers.Count())
 	assert.Nil(t, entry)
 	assert.False(t, ok)
 
-	entry, ok = workers.heartbeat(client, true)
+	client := &ClientData{
+		Hostname:    "MikeBookPro.local",
+		Wid:         "78629a0f5f3f164f",
+		connections: map[io.Closer]bool{},
+	}
+	entry, ok = workers.setupHeartbeat(client, &cls{})
+	assert.NotNil(t, entry)
+	assert.False(t, ok)
+
+	entry, ok = workers.heartbeat(beat)
 	assert.Equal(t, 1, workers.Count())
 	assert.NotNil(t, entry)
 	assert.True(t, ok)
 
 	before := time.Now()
-	entry, ok = workers.heartbeat(client, true)
+	entry, ok = workers.heartbeat(beat)
 	after := time.Now()
 	assert.Equal(t, 1, workers.Count())
 	assert.NotNil(t, entry)
 	assert.True(t, ok)
 	assert.True(t, entry.lastHeartbeat.After(before))
 	assert.True(t, entry.lastHeartbeat.Before(after))
+
+	assert.Equal(t, Running, entry.state)
+	beat.CurrentState = "quiet"
+	entry, _ = workers.heartbeat(beat)
+	assert.Equal(t, Quiet, entry.state)
+	assert.True(t, entry.IsQuiet())
+
+	beat.CurrentState = ""
+	entry, _ = workers.heartbeat(beat)
+	assert.Equal(t, Quiet, entry.state)
+
+	beat.CurrentState = "terminate"
+	entry, _ = workers.heartbeat(beat)
+	assert.Equal(t, Terminate, entry.state)
 
 	count := workers.reapHeartbeats(client.lastHeartbeat)
 	assert.Equal(t, 1, workers.Count())
@@ -83,4 +105,10 @@ func TestWorkers(t *testing.T) {
 	count = workers.reapHeartbeats(time.Now())
 	assert.Equal(t, 0, workers.Count())
 	assert.Equal(t, 1, count)
+}
+
+type cls struct{}
+
+func (c cls) Close() error {
+	return nil
 }

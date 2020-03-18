@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"sync"
 	"time"
 
@@ -60,6 +61,7 @@ type ClientData struct {
 	// are sending BEAT
 	lastHeartbeat time.Time
 	state         WorkerState
+	connections   map[io.Closer]bool
 }
 
 type WorkerState int
@@ -78,6 +80,17 @@ func stateString(state WorkerState) string {
 		return "terminate"
 	default:
 		return ""
+	}
+}
+
+func stateFromString(state string) WorkerState {
+	switch state {
+	case "quiet":
+		return Quiet
+	case "terminate":
+		return Terminate
+	default:
+		return Running
 	}
 }
 
@@ -100,6 +113,10 @@ func (worker *ClientData) IsQuiet() bool {
  * worker process.  Other signals are undefined.
  */
 func (worker *ClientData) Signal(newstate WorkerState) {
+	if worker.state == newstate {
+		return
+	}
+
 	if worker.state == Running {
 		worker.state = newstate
 		return
@@ -138,48 +155,96 @@ func (w *workers) Count() int {
 	return len(w.heartbeats)
 }
 
-func (w *workers) heartbeat(client *ClientData, register bool) (*ClientData, bool) {
+func (w *workers) setupHeartbeat(client *ClientData, cls io.Closer) (*ClientData, bool) {
 	w.mu.RLock()
 	entry, ok := w.heartbeats[client.Wid]
 	w.mu.RUnlock()
 
 	if ok {
-		w.mu.Lock()
-		entry.lastHeartbeat = time.Now()
-		w.mu.Unlock()
-	} else if register {
-		client.StartedAt = time.Now()
-		client.lastHeartbeat = time.Now()
-		w.mu.Lock()
-		w.heartbeats[client.Wid] = client
-		w.mu.Unlock()
-		entry = client
-		ok = true
+		return entry, ok
 	}
 
+	client.StartedAt = time.Now()
+	client.lastHeartbeat = time.Now()
+	client.connections = map[io.Closer]bool{}
+
+	w.mu.Lock()
+	if c, ok := w.heartbeats[client.Wid]; ok {
+		entry = c
+	} else {
+		w.heartbeats[client.Wid] = client
+		entry = client
+	}
+	entry.connections[cls] = true
+	w.mu.Unlock()
+
 	return entry, ok
+}
+
+func (w *workers) heartbeat(client *ClientBeat) (*ClientData, bool) {
+	w.mu.RLock()
+	entry, ok := w.heartbeats[client.Wid]
+	w.mu.RUnlock()
+
+	if !ok {
+		return nil, ok
+	}
+
+	newst := entry.state
+	if client.CurrentState != "" {
+		newst = stateFromString(client.CurrentState)
+	}
+	w.mu.Lock()
+	entry.lastHeartbeat = time.Now()
+	if entry.state != newst {
+		entry.Signal(newst)
+	}
+	w.mu.Unlock()
+	return entry, ok
+}
+
+func (w *workers) RemoveConnection(c *Connection) {
+	w.mu.Lock()
+	cd, ok := w.heartbeats[c.client.Wid]
+	if ok {
+		delete(cd.connections, c)
+		if len(cd.connections) == 0 {
+			//util.Debugf("All worker connections closed, reaping %s", c.client.Wid)
+			delete(w.heartbeats, c.client.Wid)
+		}
+	}
+	w.mu.Unlock()
 }
 
 func (w *workers) reapHeartbeats(t time.Time) int {
 	toDelete := []string{}
 
-	w.mu.RLock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	for k, worker := range w.heartbeats {
 		if worker.lastHeartbeat.Before(t) {
 			toDelete = append(toDelete, k)
 		}
 	}
-	w.mu.RUnlock()
 
 	count := len(toDelete)
+	conns := 0
 	if count > 0 {
-		w.mu.Lock()
 		for _, k := range toDelete {
+			cd := w.heartbeats[k]
+			for conn := range cd.connections {
+				conn.Close()
+				conns += 1
+			}
 			delete(w.heartbeats, k)
 		}
-		w.mu.Unlock()
 
 		util.Debugf("Reaped %d worker heartbeats", count)
+		if conns > 0 {
+			util.Warnf("Reaped %d lingering connections, this is a sign your workers are having problems", conns)
+			util.Warn("All worker processes should send a heartbeat every 15 seconds")
+		}
 	}
 	return count
 }

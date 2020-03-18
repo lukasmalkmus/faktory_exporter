@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+
+	"github.com/contribsys/faktory/manager"
 )
 
 // Represents a connection to a faktory client.
@@ -19,12 +21,12 @@ type Connection struct {
 	buf    *bufio.Reader
 }
 
-func (c *Connection) Close() {
-	c.conn.Close()
+func (c *Connection) Close() error {
+	return c.conn.Close()
 }
 
 func (c *Connection) Error(cmd string, err error) error {
-	re, ok := err.(*taggedError)
+	re, ok := err.(manager.KnownError)
 	if ok {
 		_, err = c.conn.Write([]byte(fmt.Sprintf("-%s\r\n", re.Error())))
 	} else {

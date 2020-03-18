@@ -1,10 +1,12 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
 	"github.com/contribsys/faktory/client"
+	"github.com/contribsys/faktory/storage"
 	"github.com/contribsys/faktory/util"
 )
 
@@ -16,12 +18,33 @@ var (
 )
 
 type Reservation struct {
-	Job     *client.Job `json:"job"`
-	Since   string      `json:"reserved_at"`
-	Expiry  string      `json:"expires_at"`
-	Wid     string      `json:"wid"`
-	tsince  time.Time
-	texpiry time.Time
+	Job       *client.Job `json:"job"`
+	Since     string      `json:"reserved_at"`
+	Expiry    string      `json:"expires_at"`
+	Wid       string      `json:"wid"`
+	tsince    time.Time
+	texpiry   time.Time
+	extension time.Time
+	lease     Lease
+}
+
+func (res *Reservation) ReservedAt() time.Time {
+	return res.tsince
+}
+
+func (res *Reservation) ExpiresAt() time.Time {
+	return res.texpiry
+}
+
+func (m *manager) ExtendReservation(jid string, until time.Time) error {
+	m.workingMutex.Lock()
+	if localres, ok := m.workingMap[jid]; ok {
+		if localres.texpiry.Before(until) {
+			localres.extension = until
+		}
+	}
+	m.workingMutex.Unlock()
+	return nil
 }
 
 func (m *manager) WorkingCount() int {
@@ -56,17 +79,22 @@ func (m *manager) loadWorkingSet() error {
 	defer m.workingMutex.Unlock()
 
 	addedCount := 0
-	err := m.store.Working().Each(func(_ int, _ []byte, data []byte) error {
+	err := m.store.Working().Each(func(idx int, entry storage.SortedEntry) error {
 		var res Reservation
-		err := json.Unmarshal(data, &res)
+		err := json.Unmarshal(entry.Value(), &res)
 		if err != nil {
-			return err
+			//  We can't return an error here, this method is best effort
+			// as we are booting the server. We can't allow corrupted data
+			// to stop Faktory from starting.
+			util.Error("Unable to restore working job", err)
+			return nil
 		}
 		m.workingMap[res.Job.Jid] = &res
 		addedCount++
 		return nil
 	})
 	if err != nil {
+		util.Error("Error restoring working set", err)
 		return err
 	}
 	if addedCount > 0 {
@@ -75,25 +103,27 @@ func (m *manager) loadWorkingSet() error {
 	return err
 }
 
-func (m *manager) reserve(wid string, job *client.Job) error {
+func (m *manager) reserve(wid string, lease Lease) error {
 	now := time.Now()
+	job, _ := lease.Job()
 	timeout := job.ReserveFor
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
 
 	if timeout < 60 {
-		timeout = DefaultTimeout
-		util.Warnf("Timeout too short %d, 60 seconds minimum", timeout)
+		util.Debugf("Timeout too short %d, 60 seconds minimum", timeout)
+		timeout = 60
 	}
 
 	if timeout > 86400 {
-		timeout = DefaultTimeout
-		util.Warnf("Timeout too long %d, one day maximum", timeout)
+		util.Debugf("Timeout too long %d, one day maximum", timeout)
+		timeout = 86400
 	}
 
 	exp := now.Add(time.Duration(timeout) * time.Second)
 	var res = &Reservation{
+		lease:   lease,
 		Job:     job,
 		Since:   util.Thens(now),
 		Expiry:  util.Thens(exp),
@@ -119,31 +149,40 @@ func (m *manager) reserve(wid string, job *client.Job) error {
 	return nil
 }
 
-func (m *manager) ack(jid string) (*client.Job, error) {
+func (m *manager) Acknowledge(jid string) (*client.Job, error) {
 	res := m.clearReservation(jid)
 	if res == nil {
 		util.Infof("No such job to acknowledge %s", jid)
 		return nil, nil
 	}
 
-	err := m.store.Working().RemoveElement(res.Expiry, jid)
-	return res.Job, err
-}
-
-func (m *manager) Acknowledge(jid string) (*client.Job, error) {
-	job, err := m.ack(jid)
+	// doesn't matter, might not have acknowledged in time
+	_, err := m.store.Working().RemoveElement(res.Expiry, jid)
 	if err != nil {
 		return nil, err
 	}
 
-	if job != nil {
-		m.store.Success()
+	// Lease is in-memory only
+	// A reservation can have a nil Lease if we restarted
+	if res.lease != nil {
+		err = res.lease.Release()
+		if err != nil {
+			util.Error("Error releasing lease for "+jid, err)
+		}
 	}
-	return job, nil
+
+	if res.Job != nil {
+		_ = m.store.Success()
+		err = callMiddleware(m.ackChain, Ctx{context.Background(), res.Job, m, res}, func() error {
+			return nil
+		})
+	}
+
+	return res.Job, err
 }
 
-func (m *manager) ReapExpiredJobs(timestamp string) (int, error) {
-	elms, err := m.store.Working().RemoveBefore(timestamp)
+func (m *manager) ReapExpiredJobs(when time.Time) (int, error) {
+	elms, err := m.store.Working().RemoveBefore(util.Thens(when))
 	if err != nil {
 		return 0, err
 	}
@@ -154,6 +193,27 @@ func (m *manager) ReapExpiredJobs(timestamp string) (int, error) {
 		err := json.Unmarshal(elm, &res)
 		if err != nil {
 			util.Error("Unable to read reservation", err)
+			continue
+		}
+
+		jid := res.Job.Jid
+		m.workingMutex.Lock()
+		localres, ok := m.workingMap[jid]
+		m.workingMutex.Unlock()
+
+		// the user has extended the job reservation.
+		// Since modifying the score of a SortedSet member
+		// is an expensive operation in Redis, we keep
+		// the latest deadline in memory and extend the
+		// reservation when it expires, in this method.
+		if ok && when.Before(localres.extension) {
+			util.Debugf("Auto-extending reservation time for %s", jid)
+			localres.texpiry = localres.extension
+			localres.Expiry = util.Thens(localres.extension)
+			err = m.store.Working().AddElement(localres.Expiry, jid, elm)
+			if err != nil {
+				util.Error("Unable to extend reservation for "+jid, err)
+			}
 			continue
 		}
 
