@@ -266,15 +266,15 @@ func (e *Exporter) scrape() (err error) {
 		return fmt.Errorf("error getting queue counts")
 	}
 
-	for queue, counter := range queues {
+	for queue, jobs := range queues {
 		e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: "queue",
 			Name:      "jobs",
-			Help:      "Number of jobs in the " + queue + "queue.",
+			Help:      "Number of jobs in the " + queue + " queue.",
 		},
 			[]string{"queue"})
-		e.queues[queue].WithLabelValues(queue).Set(counter.(float64))
+		e.queues[queue].WithLabelValues(queue).Set(jobs.(float64))
 	}
 	return nil
 }
