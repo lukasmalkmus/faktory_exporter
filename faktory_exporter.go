@@ -160,6 +160,12 @@ func New(faktoryURL string) (*Exporter, error) {
 				Name:      "enqueued",
 				Help:      "Task retries enqueued.",
 			}),
+			size: prometheus.NewGauge(prometheus.GaugeOpts{
+				Namespace: namespace,
+				Subsystem: "tasks_retries",
+				Name:      "size",
+				Help:      "Task retries size.",
+			}),
 		}},
 	}
 
@@ -177,6 +183,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.connections.Describe(ch)
 	e.jobs.Describe(ch)
 	e.tasks.retries.enqueued.Describe(ch)
+	e.tasks.retries.size.Describe(ch)
 	e.totalQueues.Describe(ch)
 	for _, counter := range e.queues {
 		counter.Describe(ch)
@@ -209,6 +216,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.connections.Collect(ch)
 	e.jobs.Collect(ch)
 	e.tasks.retries.enqueued.Collect(ch)
+	e.tasks.retries.size.Collect(ch)
 	e.totalQueues.Collect(ch)
 	for _, counter := range e.queues {
 		counter.Collect(ch)
@@ -289,6 +297,7 @@ func (e *Exporter) scrape() (err error) {
 	e.jobs.WithLabelValues("failure").Set(failures)
 	e.jobs.WithLabelValues("processed").Set(processed)
 	e.tasks.retries.enqueued.Set(retries["enqueued"].(float64))
+	e.tasks.retries.size.Set(retries["size"].(float64))
 	e.totalQueues.Set(totalQueues)
 
 	queues, ok := faktory["queues"].(map[string]interface{})
