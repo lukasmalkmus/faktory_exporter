@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	faktoryURL       = kingpin.Flag("faktory.url", "URL of the faktory instance").Default("tcp://localhost:7419").String()
+	faktoryURL       = kingpin.Flag("faktory.url", "URL of the faktory instance").Default("tcp://localhost:7419").OverrideDefaultFromEnvar("FAKTORY_URL").String()
 	webListenAddress = kingpin.Flag("web.listen-address", "Address on which to expose metrics and web interface").Default(":9386").String()
 	webMetricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics").Default("/metrics").String()
 )
