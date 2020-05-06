@@ -10,15 +10,8 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# External packages folder
-vendor
-_vendor-*/
-
 # Dot env files
 .env
-
-# Git folder
-.git
 
 # Build and release artifacts
 .build
@@ -27,3 +20,6 @@ faktory_exporter
 *.tar.gz
 *.mprof
 *-stamp
+
+# To prevent Docker layer cache misses in Dockerfile-only changes
+Dockerfile
