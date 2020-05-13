@@ -300,20 +300,24 @@ func (e *Exporter) scrape() (err error) {
 	e.tasks.retries.size.Set(retries["size"].(float64))
 	e.totalQueues.Set(totalQueues)
 
-	queues, ok := faktory["queues"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("error getting queue counts")
-	}
+	// If the queues key exists then inspect it, otherwise return nil error.
+	if queuesPayload, ok := faktory["queues"]; ok {
 
-	for queue, jobs := range queues {
-		e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: "queue",
-			Name:      "jobs",
-			Help:      "Number of jobs in the " + queue + " queue.",
-		},
-			[]string{"queue"})
-		e.queues[queue].WithLabelValues(queue).Set(jobs.(float64))
+		queues, ok := queuesPayload.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("error getting queue counts")
+		}
+
+		for queue, jobs := range queues {
+			e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+				Namespace: namespace,
+				Subsystem: "queue",
+				Name:      "jobs",
+				Help:      "Number of jobs in the " + queue + " queue.",
+			},
+				[]string{"queue"})
+			e.queues[queue].WithLabelValues(queue).Set(jobs.(float64))
+		}
 	}
 	return nil
 }
