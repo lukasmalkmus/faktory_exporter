@@ -71,7 +71,7 @@ type Exporter struct {
 	jobs         *prometheus.CounterVec
 	totalQueues  prometheus.Gauge
 	tasks        Tasks
-	queues       map[string]*prometheus.GaugeVec
+	queues       *prometheus.GaugeVec
 }
 
 // New creates and returns a new, initialized Faktory Exporter.
@@ -152,7 +152,12 @@ func New(faktoryURL string) (*Exporter, error) {
 			Name:      "total",
 			Help:      "Total amount of queues.",
 		}),
-		queues: make(map[string]*prometheus.GaugeVec),
+		queues: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "queue",
+			Name:      "jobs",
+			Help:      "Number of jobs in every queue.",
+		}, []string{"queue"}),
 		tasks: Tasks{retries: Retries{
 			enqueued: prometheus.NewGauge(prometheus.GaugeOpts{
 				Namespace: namespace,
@@ -185,10 +190,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	e.tasks.retries.enqueued.Describe(ch)
 	e.tasks.retries.size.Describe(ch)
 	e.totalQueues.Describe(ch)
-	for _, counter := range e.queues {
-		counter.Describe(ch)
-	}
-
+	e.queues.Describe(ch)
 }
 
 // Collect the stats from the configured Faktory instance and deliver them as
@@ -218,9 +220,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.tasks.retries.enqueued.Collect(ch)
 	e.tasks.retries.size.Collect(ch)
 	e.totalQueues.Collect(ch)
-	for _, counter := range e.queues {
-		counter.Collect(ch)
-	}
+	e.queues.Collect(ch)
 }
 
 // reset the vector metrics.
@@ -306,14 +306,7 @@ func (e *Exporter) scrape() (err error) {
 	}
 
 	for queue, jobs := range queues {
-		e.queues[queue] = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: "queue",
-			Name:      "jobs",
-			Help:      "Number of jobs in the " + queue + " queue.",
-		},
-			[]string{"queue"})
-		e.queues[queue].WithLabelValues(queue).Set(jobs.(float64))
+		e.queues.WithLabelValues(queue).Set(jobs.(float64))
 	}
 	return nil
 }
