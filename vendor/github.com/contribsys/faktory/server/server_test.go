@@ -12,15 +12,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/contribsys/faktory/storage"
 	"github.com/stretchr/testify/assert"
 )
 
 func runServer(binding string, runner func()) {
-	dir := strings.Replace(binding, ":", "_", 1)
-	os.RemoveAll("/tmp/" + dir)
+	dir := fmt.Sprintf("/tmp/%s", strings.Replace(binding, ":", "_", 1))
+	defer os.RemoveAll(dir)
+
+	sock := fmt.Sprintf("%s/test.sock", dir)
+	stopper, err := storage.BootRedis(dir, sock)
+	if err != nil {
+		panic(err)
+	}
+	defer stopper()
+
 	opts := &ServerOptions{
 		Binding:          binding,
-		StorageDirectory: "/tmp/" + dir,
+		StorageDirectory: dir,
+		RedisSock:        sock,
 		ConfigDirectory:  os.ExpandEnv("$HOME/.faktory"),
 	}
 	s, err := NewServer(opts)
@@ -43,9 +53,8 @@ func runServer(binding string, runner func()) {
 }
 
 func TestServerStart(t *testing.T) {
-	t.Parallel()
-	runServer("localhost:7420", func() {
-		conn, err := net.DialTimeout("tcp", "localhost:7420", 1*time.Second)
+	runServer("localhost:4477", func() {
+		conn, err := net.DialTimeout("tcp", "localhost:4477", 1*time.Second)
 		assert.NoError(t, err)
 		buf := bufio.NewReader(conn)
 
@@ -64,29 +73,30 @@ func TestServerStart(t *testing.T) {
 		val, err := json.Marshal(client)
 		assert.NoError(t, err)
 
-		conn.Write([]byte("HELLO "))
-		conn.Write(val)
-		conn.Write([]byte("\r\n"))
+		_, _ = conn.Write([]byte("HELLO "))
+		_, _ = conn.Write(val)
+		_, _ = conn.Write([]byte("\r\n"))
 		result, err := buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Equal(t, "+OK\r\n", result)
 
-		conn.Write([]byte("CMD foo\n"))
+		_, _ = conn.Write([]byte("CMD foo\n"))
 		result, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Equal(t, "-ERR Unknown command CMD\r\n", result)
 
-		conn.Write([]byte("PUSH {\"jid\":\"12345678901234567890abcd\",\"jobtype\":\"Thing\",\"args\":[123],\"queue\":\"default\"}\n"))
+		_, _ = conn.Write([]byte("PUSH {\"jid\":\"12345678901234567890abcd\",\"jobtype\":\"Thing\",\"args\":[123],\"queue\":\"default\"}\n"))
 		result, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Equal(t, "+OK\r\n", result)
 
-		conn.Write([]byte("FETCH default some other\n"))
+		_, _ = conn.Write([]byte("FETCH default some other\n"))
 		_, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		result, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Regexp(t, "12345678901234567890abcd", result)
+		assert.Regexp(t, "\"retry\":", result)
 
 		hash := make(map[string]interface{})
 		err = json.Unmarshal([]byte(result), &hash)
@@ -95,17 +105,17 @@ func TestServerStart(t *testing.T) {
 		assert.Equal(t, "12345678901234567890abcd", hash["jid"])
 		//assert.Equal(t, "{\"jid\":\"12345678901234567890abcd\",\"class\":\"Thing\",\"args\":[123],\"queue\":\"default\"}\n", result)
 
-		conn.Write([]byte(fmt.Sprintf("FAIL {\"jid\":\"%s\",\"message\":\"Invalid something\",\"errtype\":\"RuntimeError\"}\n", hash["jid"])))
+		_, _ = conn.Write([]byte(fmt.Sprintf("FAIL {\"jid\":\"%s\",\"message\":\"Invalid something\",\"errtype\":\"RuntimeError\"}\n", hash["jid"])))
 		result, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Equal(t, "+OK\r\n", result)
 
-		conn.Write([]byte(fmt.Sprintf("ACK {\"jid\":\"%s\"}\n", hash["jid"])))
+		_, _ = conn.Write([]byte(fmt.Sprintf("ACK {\"jid\":\"%s\"}\n", hash["jid"])))
 		result, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		assert.Equal(t, "+OK\r\n", result)
 
-		conn.Write([]byte(fmt.Sprintf("INFO\n")))
+		_, _ = conn.Write([]byte(fmt.Sprintf("INFO\n")))
 		_, err = buf.ReadString('\n')
 		assert.NoError(t, err)
 		result, err = buf.ReadString('\n')
@@ -116,7 +126,17 @@ func TestServerStart(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 3, len(stats))
 
-		conn.Write([]byte("END\n"))
+		_, _ = conn.Write([]byte(fmt.Sprintf("BEAT {\"wid\":\"%s\"}\n", client.Wid)))
+		result, err = buf.ReadString('\n')
+		assert.NoError(t, err)
+		assert.Equal(t, "+OK\r\n", result)
+
+		_, _ = conn.Write([]byte(fmt.Sprintf("FLUSH\n")))
+		result, err = buf.ReadString('\n')
+		assert.NoError(t, err)
+		assert.Equal(t, "+OK\r\n", result)
+
+		_, _ = conn.Write([]byte("END\n"))
 		//result, err = buf.ReadString('\n')
 		//assert.NoError(t, err)
 		//assert.Equal(t, "OK\n", result)

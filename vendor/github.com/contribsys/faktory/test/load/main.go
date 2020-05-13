@@ -78,7 +78,7 @@ func run() {
 	}
 
 	waiter.Wait()
-	stop := time.Now().Sub(start)
+	stop := time.Since(start)
 	fmt.Printf("Processed %d pushes and %d pops in %2f seconds, rate: %f jobs/s\n", pushes, pops, stop.Seconds(), float64(jobs)/stop.Seconds())
 	//fmt.Println(opsCount)
 }
@@ -139,7 +139,6 @@ func pop(client *faktory.Client, queues []string) {
 
 func push(client *faktory.Client, queue string) {
 	j := faktory.NewJob("SomeJob", []interface{}{1, "string", 3})
-	j.Priority = uint8(rand.Intn(9) + 1)
 	j.Queue = queue
 	err := client.Push(j)
 	if err != nil {

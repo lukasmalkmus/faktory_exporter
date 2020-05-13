@@ -3,91 +3,150 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:a74730e052a45a3fab1d310fdef2ec17ae3d6af16228421e238320846f2aaec8"
   name = "github.com/alecthomas/template"
-  packages = [".","parse"]
+  packages = [
+    ".",
+    "parse",
+  ]
+  pruneopts = ""
   revision = "a0175ee3bccc567396460bf5acd36800cb10c49c"
 
 [[projects]]
   branch = "master"
+  digest = "1:8483994d21404c8a1d489f6be756e25bfccd3b45d65821f25695577791a08e68"
   name = "github.com/alecthomas/units"
   packages = ["."]
+  pruneopts = ""
   revision = "2efee857e7cfd4f3d0138cc3cbb1b4966962b93a"
 
 [[projects]]
   branch = "master"
+  digest = "1:0c5485088ce274fac2e931c1b979f2619345097b39d91af3239977114adf0320"
   name = "github.com/beorn7/perks"
   packages = ["quantile"]
+  pruneopts = ""
   revision = "4c0e84591b9aa9e6dcfdf3e020114cd81f89d5f9"
 
 [[projects]]
   branch = "master"
+  digest = "1:e345fad588f85c6f2db188f025c5785a8840baade02fe0465258457924612840"
   name = "github.com/contribsys/faktory"
-  packages = ["client"]
-  revision = "cf9deff1a39c7bfc840cb32e8b9eb55a25f164ee"
+  packages = [
+    "client",
+    "internal/pool",
+    "util",
+  ]
+  pruneopts = ""
+  revision = "8f2b0451bdee71a2e0fb13f7816f816653fad103"
 
 [[projects]]
   branch = "master"
+  digest = "1:3b760d3b93f994df8eb1d9ebfad17d3e9e37edcb7f7efaa15b427c0d7a64f4e4"
   name = "github.com/golang/protobuf"
   packages = ["proto"]
+  pruneopts = ""
   revision = "1e59b77b52bf8e4b449a57e6f79f21226d571845"
 
 [[projects]]
+  digest = "1:4c23ced97a470b17d9ffd788310502a077b9c1f60221a85563e49696276b4147"
   name = "github.com/matttproud/golang_protobuf_extensions"
   packages = ["pbutil"]
+  pruneopts = ""
   revision = "3247c84500bff8d9fb6d579d800f20b3e091582c"
   version = "v1.0.0"
 
 [[projects]]
+  digest = "1:4142d94383572e74b42352273652c62afec5b23f325222ed09198f46009022d1"
   name = "github.com/prometheus/client_golang"
-  packages = ["prometheus","prometheus/promhttp"]
+  packages = [
+    "prometheus",
+    "prometheus/promhttp",
+  ]
+  pruneopts = ""
   revision = "c5b7fccd204277076155f10851dad72b76a49317"
   version = "v0.8.0"
 
 [[projects]]
   branch = "master"
+  digest = "1:60aca47f4eeeb972f1b9da7e7db51dee15ff6c59f7b401c1588b8e6771ba15ef"
   name = "github.com/prometheus/client_model"
   packages = ["go"]
+  pruneopts = ""
   revision = "99fa1f4be8e564e8a6b613da7fa6f46c9edafc6c"
 
 [[projects]]
   branch = "master"
+  digest = "1:e3aa5178be4fc4ae8cdb37d11c02f7490c00450a9f419e6aa84d02d3b47e90d2"
   name = "github.com/prometheus/common"
-  packages = ["expfmt","internal/bitbucket.org/ww/goautoneg","log","model","version"]
+  packages = [
+    "expfmt",
+    "internal/bitbucket.org/ww/goautoneg",
+    "log",
+    "model",
+    "version",
+  ]
+  pruneopts = ""
   revision = "2e54d0b93cba2fd133edc32211dcc32c06ef72ca"
 
 [[projects]]
   branch = "master"
+  digest = "1:33ba6d0c531bcf83e395f54a322c3d2e29b3d59f8ee0dabfe25a9d9fbba7ba11"
   name = "github.com/prometheus/procfs"
-  packages = [".","xfs"]
+  packages = [
+    ".",
+    "xfs",
+  ]
+  pruneopts = ""
   revision = "f98634e408857669d61064b283c4cde240622865"
 
 [[projects]]
+  digest = "1:42a42c4bc67bed17f40fddf0f24d4403e25e7b96488456cf4248e6d16659d370"
   name = "github.com/sirupsen/logrus"
   packages = ["."]
+  pruneopts = ""
   revision = "d682213848ed68c0a260ca37d6dd5ace8423f5ba"
   version = "v1.0.4"
 
 [[projects]]
   branch = "master"
+  digest = "1:c3415eeb330bf30a2d8181e516ec79804c198f3d171ab9c9364f29dbe76c05d9"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
+  pruneopts = ""
   revision = "94eea52f7b742c7cbe0b03b22f0c4c8631ece122"
 
 [[projects]]
   branch = "master"
+  digest = "1:84bded9d2b66bb5f8ce578ec660d1f1b8aa5cff27088d08eb9bc1395476f7489"
   name = "golang.org/x/sys"
-  packages = ["unix","windows","windows/registry","windows/svc/eventlog"]
+  packages = [
+    "unix",
+    "windows",
+    "windows/registry",
+    "windows/svc/eventlog",
+  ]
+  pruneopts = ""
   revision = "571f7bbbe08da2a8955aed9d4db316e78630e9a3"
 
 [[projects]]
+  digest = "1:15d017551627c8bb091bde628215b2861bed128855343fdd570c62d08871f6e1"
   name = "gopkg.in/alecthomas/kingpin.v2"
   packages = ["."]
+  pruneopts = ""
   revision = "947dcec5ba9c011838740e680966fd7087a71d0d"
   version = "v2.2.6"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "17026a6c85e13a1fdfc3319a57e351963cb3b57f9698b27ded257a82b0870e7a"
+  input-imports = [
+    "github.com/contribsys/faktory/client",
+    "github.com/prometheus/client_golang/prometheus",
+    "github.com/prometheus/client_golang/prometheus/promhttp",
+    "github.com/prometheus/common/log",
+    "github.com/prometheus/common/version",
+    "gopkg.in/alecthomas/kingpin.v2",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1

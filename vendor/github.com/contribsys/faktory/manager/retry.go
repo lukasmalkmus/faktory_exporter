@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -81,12 +82,28 @@ func (m *manager) processFailure(jid string, failure *FailPayload) error {
 		return fmt.Errorf("Job not found %s", jid)
 	}
 
-	err := m.store.Working().RemoveElement(res.Expiry, jid)
-	if err != nil {
-		return err
+	// Lease is in-memory only
+	// A reservation can have a nil Lease if we restarted
+	if res.lease != nil {
+		err := res.lease.Release()
+		if err != nil {
+			return err
+		}
 	}
 
-	m.store.Failure()
+	// when expiring overdue jobs in the working set, we remove in
+	// bulk so this job is no longer in the working set already.
+	if failure != JobReservationExpired {
+		ok, err := m.store.Working().RemoveElement(res.Expiry, jid)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	_ = m.store.Failure()
 
 	job := res.Job
 	if job.Retry == 0 {
@@ -109,10 +126,12 @@ func (m *manager) processFailure(jid string, failure *FailPayload) error {
 		}
 	}
 
-	if job.Failure.RetryCount < job.Retry {
-		return retryLater(m.store, job)
-	}
-	return sendToMorgue(m.store, job)
+	return callMiddleware(m.failChain, Ctx{context.Background(), job, m, res}, func() error {
+		if job.Failure.RetryCount < job.Retry {
+			return retryLater(m.store, job)
+		}
+		return sendToMorgue(m.store, job)
+	})
 }
 
 func retryLater(store storage.Store, job *client.Job) error {

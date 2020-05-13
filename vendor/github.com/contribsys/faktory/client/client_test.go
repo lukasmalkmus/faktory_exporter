@@ -57,16 +57,30 @@ func TestClientOperations(t *testing.T) {
 		assert.Contains(t, s, "pwdhash")
 
 		resp <- "+OK\r\n"
-		res, err := cl.Beat()
+		res, err := cl.Beat("")
 		assert.NoError(t, err)
 		assert.Equal(t, "", res)
 		assert.Contains(t, <-req, "BEAT")
 
+		resp <- "+OK\r\n"
+		err = cl.Kill(Retries, OfType("SomeJobType"))
+		assert.NoError(t, err)
+		assert.Contains(t, <-req, "MUTATE")
+
+		job, err := cl.Fetch()
+		assert.Error(t, err)
+		assert.Nil(t, job)
+
 		resp <- "$0\r\n\r\n"
-		job, err := cl.Fetch("default")
+		job, err = cl.Fetch("default")
 		assert.NoError(t, err)
 		assert.Nil(t, job)
 		assert.Contains(t, <-req, "FETCH")
+
+		resp <- "+OK\r\n"
+		err = cl.Push(NewJob("foo", 1, 2))
+		assert.NoError(t, err)
+		assert.Contains(t, <-req, "PUSH")
 
 		resp <- "+OK\r\n"
 		err = cl.Ack("123456")
@@ -105,8 +119,8 @@ func withFakeServer(t *testing.T, fn func(chan string, chan string, string)) {
 	go func() {
 		conn, err := listener.Accept()
 		assert.NoError(t, err)
-		conn.SetDeadline(time.Now().Add(1 * time.Second))
-		conn.Write([]byte("+HI {\"v\":2,\"s\":\"123\",\"i\":123}\r\n"))
+		_ = conn.SetDeadline(time.Now().Add(1 * time.Second))
+		_, _ = conn.Write([]byte("+HI {\"v\":2,\"s\":\"123\",\"i\":123}\r\n"))
 		for {
 			buf := bufio.NewReader(conn)
 			line, err := buf.ReadString('\n')
@@ -119,7 +133,7 @@ func withFakeServer(t *testing.T, fn func(chan string, chan string, string)) {
 			req <- line
 			rsp := <-resp
 			//util.Infof("< %s", rsp)
-			conn.Write([]byte(rsp))
+			_, _ = conn.Write([]byte(rsp))
 		}
 	}()
 

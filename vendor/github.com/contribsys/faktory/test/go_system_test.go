@@ -16,8 +16,8 @@ import (
 
 	"github.com/contribsys/faktory/cli"
 	"github.com/contribsys/faktory/client"
-	"github.com/contribsys/faktory/server"
 	"github.com/contribsys/faktory/util"
+	"github.com/contribsys/faktory/webui"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,12 +25,16 @@ func TestSystem(t *testing.T) {
 	opts := cli.ParseArguments()
 	util.InitLogger("info")
 
-	os.RemoveAll("/tmp/system.db")
-	defer os.RemoveAll("/tmp/system.db")
-	s, err := server.NewServer(&server.ServerOptions{
-		Binding:          opts.Binding,
-		StorageDirectory: "/tmp/system.db",
-	})
+	dir := "/tmp/system.db"
+	defer os.RemoveAll(dir)
+
+	opts.ConfigDirectory = "."
+	opts.StorageDirectory = dir
+	s, stopper, err := cli.BuildServer(opts)
+	if stopper != nil {
+		defer stopper()
+	}
+
 	if err != nil {
 		panic(err)
 	}
@@ -44,18 +48,16 @@ func TestSystem(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+	s.Register(webui.Subsystem(opts.WebBinding))
 
 	go func() {
-		err = s.Run()
-		if err != nil {
-			panic(err)
-		}
+		_ = s.Run()
 	}()
 
 	// this is a worker process so we need to set the global WID before connecting
 	client.RandomProcessWid = strconv.FormatInt(rand.Int63(), 32)
 
-	each := 10000
+	each := 5000
 	start := time.Now()
 
 	var wg sync.WaitGroup
@@ -69,10 +71,10 @@ func TestSystem(t *testing.T) {
 	}
 
 	wg.Wait()
-	s.Stop(nil)
+	assert.EqualValues(t, 3*each, s.Store().TotalProcessed())
+	assert.EqualValues(t, 3*(each/100), s.Store().TotalFailures())
 
-	assert.Equal(t, int64(3*each), s.Store().Processed())
-	assert.Equal(t, int64(3*(each/100)), s.Store().Failures())
+	s.Stop(nil)
 }
 
 func pushAndPop(t *testing.T, count int) {
