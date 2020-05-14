@@ -1,14 +1,14 @@
-FROM golang:1.11 AS builder
+FROM golang:1.14 AS builder
 
-RUN go get -u github.com/golang/dep/cmd/dep
+RUN mkdir -p /app
 
-RUN mkdir -p $GOPATH/src/github.com/lukasmalkmus/faktory_exporter/
+WORKDIR /app
 
-COPY . $GOPATH/src/github.com/lukasmalkmus/faktory_exporter/
+COPY go.mod go.sum ./
 
-WORKDIR $GOPATH/src/github.com/lukasmalkmus/faktory_exporter/
+RUN go mod download
 
-RUN dep ensure
+COPY . .
 
 RUN make PREFIX=/bin
 
