@@ -1,8 +1,12 @@
 language: go
 
 go:
-  - 1.9
+  - 1.14
   - tip
+
+cache:
+  directories:
+    - $GOPATH/pkg/mod
 
 script:
   - go test
