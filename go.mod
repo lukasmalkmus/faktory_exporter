@@ -1,7 +1,7 @@
 module github.com/lukasmalkmus/faktory_exporter
 
 require (
-	github.com/contribsys/faktory v1.4.0-1
+	github.com/contribsys/faktory v1.8.0
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.10.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
