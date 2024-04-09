@@ -1,5 +1,7 @@
 module github.com/lukasmalkmus/faktory_exporter
 
+go 1.19
+
 require (
 	github.com/contribsys/faktory v1.8.0
 	github.com/prometheus/client_golang v1.0.0

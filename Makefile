@@ -37,7 +37,7 @@ docker:
 	@docker build -t "$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)" .
 
 promu: deps
-	$(GO) get github.com/prometheus/promu
+	$(GO) install github.com/prometheus/promu@v0.15.0
 
 deps:
 	@$(GO) mod download
