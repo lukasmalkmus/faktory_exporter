@@ -7,6 +7,9 @@
 [![Latest Release][release_badge]][release]
 [![License][license_badge]][license]
 
+> [!IMPORTANT]  
+> This project is not actively maintained. As explained in [this issue](https://github.com/lukasmalkmus/faktory_exporter/issues/2) any contribution will be reviewed and potentially accepted, however it is not regularly tested. A very similar [Python Faktory exporter](https://github.com/prospect-server/faktory-prometheus-exporter) has been developed and is, as of 2024, actively used.
+
 ---
 
 ## Table of Contents
